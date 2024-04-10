@@ -1,9 +1,14 @@
-/* Name: cedit.c
+/* Name: Cedit
  * Purpose: Simple text editor Cedit - Candice's Editor
  * Author: Candice Miller
  */
 
+/*
+ * BEGIN Block: Includes
+ */
+
 #include <ctype.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <termios.h>
@@ -13,11 +18,14 @@
  * BEGIN BLOCK: DECLARATIONS
  */
 
-// raw mode hides input in terminal
-// enable/disable flips behavior
+/*** Data ***/
 struct termios orig_termios; //original terminal config, used by both enable/disable
+
+/*** terminal ***/
+void die(const char* s);
 void enableRawMode();
 void disableRawMode();
+
 
 /*
  * BEGIN BLOCK: MAIN
@@ -28,7 +36,10 @@ int main(void)
 
     while (1) {
         char c = '\0';
-        read(STDIN_FILENO, &c, 1);
+
+        // on some systems timeout returns error of EAGAIN but it's supposed to return 0
+        // ignore that case in error logging read
+        if ((read(STDIN_FILENO, &c, 1) == -1) && errno != EAGAIN) die("read");
         
         if (iscntrl(c)) {
             printf("%d\r\n", c);
@@ -49,7 +60,7 @@ int main(void)
 void enableRawMode()
 {
     // Get original terminal config
-    tcgetattr(STDIN_FILENO, &orig_termios);
+    if (tcgetattr(STDIN_FILENO, &orig_termios) == -1) die("tcgetattr");
 
     // Automatically run disableRawMode at program exit
     atexit(disableRawMode);
@@ -97,12 +108,21 @@ void enableRawMode()
     raw.c_cc[VMIN] = 0; // Sets minimum bytes to 0 - reads input after there's any input to be read
     raw.c_cc[VTIME] = 1; // Times out input read after 1/10th second
 
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetattr");
 }
 
 void disableRawMode()
 {
-    // Set terminal back to orignial config
-    // Flush any trailing characters (TCSAFLUSH)
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+    // Try to set terminal back to orignial config
+    // && Flush any trailing characters (TCSAFLUSH)
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios) == -1)
+        die("tcsetattr");
+}
+
+void die(const char* s)
+{
+    // Basic Error Logging
+    
+    perror(s); //print error
+    exit(1); //return 1 (error) on program exit
 }
