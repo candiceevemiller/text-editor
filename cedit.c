@@ -14,15 +14,12 @@
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
+#include <string.h>
 
-/*
- * BEGIN BLOCK: DEFINES
- */
+/*** defines ***/
+#define CEDIT_VERSION "0.0.1"
+
 #define CTRL_KEY(k) ((k) & 0x1f)
-
-/*
- * BEGIN BLOCK: DECLARATIONS
- */
 
 /*** data ***/
 struct editorConfig {
@@ -41,13 +38,24 @@ char editorReadKey();
 int getCursorPosition(int *rows, int *cols);
 int getWindowSize(int *rows, int *cols);
 
+/*** append buffer ***/
+struct abuf {
+    char *b;
+    int len;
+};
+
+#define ABUF_INIT {NULL, 0}
+
+void abAppend(struct abuf *ab, const char *s, int len);
+void abFree(struct abuf *ab);
+
 /*** input ***/
 void editorProcessKeypress();
 
 /*** output ***/
 void moveCursorToStart();
 void clearScreen();
-void editorDrawRows();
+void editorDrawRows(struct abuf *ab);
 void editorRefreshScreen();
 
 /*** init ***/
@@ -196,6 +204,22 @@ int getWindowSize(int *rows, int *cols)
     }
 }
 
+/*** append buffer ***/
+void abAppend(struct abuf *ab, const char *s, int len)
+{
+    char *new = realloc(ab->b, ab->len+len);
+
+    if (new == NULL) return;
+    memcpy(&new[ab->len], s, len);
+    ab->b = new;
+    ab->len += len;
+}
+
+void abFree(struct abuf *ab)
+{
+    free(ab->b);
+}
+
 /*** input ***/
 void editorProcessKeypress()
 {
@@ -223,26 +247,56 @@ void clearScreen()
     moveCursorToStart();
 }
 
-void editorDrawRows()
+void editorDrawRows(struct abuf *ab)
 {
     // draw ~ like vim
 
     int r; // rows
     for (r = 0; r < E.screenrows; r++) {
-        write(STDOUT_FILENO, "~", 1);
-        
+        if (r == E.screenrows / 3) {
+            char welcome[80];
+            int welcomelen = snprintf(welcome, sizeof(welcome), 
+            "Cedit -- version %s", CEDIT_VERSION);
+            if (welcomelen > E.screencols) welcomelen = E.screencols;
+            abAppend(ab, welcome, welcomelen);
+        } else {
+            abAppend(ab, "~", 1);
+        }
+
+        // clear right of line
+        // more efficient than screen redraw
+        abAppend(ab, "\x1b[K", 3);
+
         // don't draw on last line
         if (r < E.screenrows - 1) {
-            write(STDOUT_FILENO, "\r\n", 2);
+            abAppend(ab, "\r\n", 2);
         }
     }
 }
 
 void editorRefreshScreen()
 {
-    clearScreen();
-    editorDrawRows();
-    moveCursorToStart();
+    struct abuf ab = ABUF_INIT;
+    // don't use clear screen func here because 
+    // write is inneficient on draw
+
+    //hide cursor
+    abAppend(&ab, "\x1b[?25l", 6);
+    //return cursor to start
+    abAppend(&ab, "\x1b[H", 3);
+
+    editorDrawRows(&ab);
+
+    //return cursor to start
+    abAppend(&ab, "\x1b[H", 3);
+    //show cursor again
+    abAppend(&ab, "\x1b[?25h", 6);
+
+    // write buffer
+    write(STDOUT_FILENO, ab.b, ab.len);
+
+    // free buffer
+    abFree(&ab);
 }
 
 /*** init ***/
