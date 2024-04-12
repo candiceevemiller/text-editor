@@ -38,6 +38,7 @@ void die(const char* s);
 void enableRawMode();
 void disableRawMode();
 char editorReadKey();
+int getCursorPosition(int *rows, int *cols);
 int getWindowSize(int *rows, int *cols);
 
 /*** input ***/
@@ -55,6 +56,7 @@ void initEditor();
 int main(void)
 {
     enableRawMode();
+    initEditor();
 
     while (1) {
         editorRefreshScreen();
@@ -150,13 +152,43 @@ char editorReadKey()
     return c;
 }
 
+int getCursorPosition(int *rows, int *cols)
+{
+    char buf[32];
+    unsigned int i = 0;
+
+    // prints cursor position
+    if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) return -1;
+
+    // reads cursor position into buffer
+    while (i < sizeof(buf) -1) {
+        if (read(STDIN_FILENO, &buf[i], 1) != 1) break;
+        if (buf[i] == 'R') break;
+        i++;
+    }
+
+    // terminates buffer string
+    buf[i] = '\0';
+
+    // confirms buffer is escape sequence
+    if (buf[0] != '\x1b' || buf[1] != '[') return -1;
+    // reads buffer into pointers for rows and cols
+    // no & because our function params are pointers
+    if (sscanf(&buf[2], "%d;%d", rows, cols) != 2) return -1;
+
+    return 0;
+}
+
 int getWindowSize(int *rows, int *cols)
 {
     struct winsize ws;
     // Terminal Input/Output Control Get Window Size
     // TIOCGWINSZ
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
-        return -1;
+        // moves cursor down and right 999 times
+        // C and B prevent leaving edge of screen
+        if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1;
+        return getCursorPosition(rows,cols);
     } else {
         *cols = ws.ws_col;
         *rows = ws.ws_row;
@@ -194,10 +226,15 @@ void clearScreen()
 void editorDrawRows()
 {
     // draw ~ like vim
-    
+
     int r; // rows
     for (r = 0; r < E.screenrows; r++) {
-        write(STDOUT_FILENO, "~\n\n", 3);
+        write(STDOUT_FILENO, "~", 1);
+        
+        // don't draw on last line
+        if (r < E.screenrows - 1) {
+            write(STDOUT_FILENO, "\r\n", 2);
+        }
     }
 }
 
