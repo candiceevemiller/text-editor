@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -24,23 +25,33 @@
  */
 
 /*** data ***/
-struct termios orig_termios; //original terminal config, used by both enable/disable
+struct editorConfig {
+    int screenrows;
+    int screencols;
+    struct termios orig_termios;
+};
+
+struct editorConfig E;
 
 /*** terminal ***/
 void die(const char* s);
 void enableRawMode();
 void disableRawMode();
 char editorReadKey();
+int getWindowSize(int *rows, int *cols);
 
 /*** input ***/
 void editorProcessKeypress();
 
 /*** output ***/
+void moveCursorToStart();
+void clearScreen();
+void editorDrawRows();
 void editorRefreshScreen();
 
-/*
- * BEGIN BLOCK: MAIN
- */
+/*** init ***/
+void initEditor();
+
 int main(void)
 {
     enableRawMode();
@@ -54,17 +65,16 @@ int main(void)
 }
 
 /*** terminal ***/
-
 void enableRawMode()
 {
     // Get original terminal config
-    if (tcgetattr(STDIN_FILENO, &orig_termios) == -1) die("tcgetattr");
+    if (tcgetattr(STDIN_FILENO, &E.orig_termios) == -1) die("tcgetattr");
 
     // Automatically run disableRawMode at program exit
     atexit(disableRawMode);
     
     // Copy orig config into raw
-    struct termios raw = orig_termios;
+    struct termios raw = E.orig_termios;
 
     /* Set the terminal config flags to what we want using bitwise arithmetic
      * & (and) and ~ (not) force these flags to be false
@@ -113,14 +123,17 @@ void disableRawMode()
 {
     // Try to set terminal back to orignial config
     // && Flush any trailing characters (TCSAFLUSH)
-    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios) == -1)
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_termios) == -1)
         die("tcsetattr");
 }
 
 void die(const char* s)
 {
-    // Basic Error Logging
-    
+    // Basic Error Logging and exit
+
+    //cls first so error message not overwritten
+    clearScreen();
+
     perror(s); //print error
     exit(1); //return 1 (error) on program exit
 }
@@ -137,6 +150,20 @@ char editorReadKey()
     return c;
 }
 
+int getWindowSize(int *rows, int *cols)
+{
+    struct winsize ws;
+    // Terminal Input/Output Control Get Window Size
+    // TIOCGWINSZ
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
+        return -1;
+    } else {
+        *cols = ws.ws_col;
+        *rows = ws.ws_row;
+        return 0;
+    }
+}
+
 /*** input ***/
 void editorProcessKeypress()
 {
@@ -144,13 +171,48 @@ void editorProcessKeypress()
 
     switch (c) {
         case CTRL_KEY('q'):
+            clearScreen();
             exit(0);
             break;
     }
 }
 
+void moveCursorToStart()
+{
+    // [H moves cursor to top of terminal
+    write(STDOUT_FILENO, "\x1b[H", 3);
+}
+
 /*** output ***/
+void clearScreen()
+{
+    // [2J clears whole screen
+    write(STDOUT_FILENO, "\x1b[2J", 4);
+    moveCursorToStart();
+}
+
+void editorDrawRows()
+{
+    // draw ~ like vim
+    
+    int r; // rows
+    for (r = 0; r < E.screenrows; r++) {
+        write(STDOUT_FILENO, "~\n\n", 3);
+    }
+}
+
 void editorRefreshScreen()
 {
-    write(STDOUT_FILENO, "\x1b[2J", 4);
+    clearScreen();
+    editorDrawRows();
+    moveCursorToStart();
+}
+
+/*** init ***/
+void initEditor()
+{
+    // Initializes vals in E struct
+
+    // set row/col size && die on fail
+    if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
 }
