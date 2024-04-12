@@ -23,14 +23,20 @@
  * BEGIN BLOCK: DECLARATIONS
  */
 
-/*** Data ***/
+/*** data ***/
 struct termios orig_termios; //original terminal config, used by both enable/disable
 
 /*** terminal ***/
 void die(const char* s);
 void enableRawMode();
 void disableRawMode();
+char editorReadKey();
 
+/*** input ***/
+void editorProcessKeypress();
+
+/*** output ***/
+void editorRefreshScreen();
 
 /*
  * BEGIN BLOCK: MAIN
@@ -40,27 +46,14 @@ int main(void)
     enableRawMode();
 
     while (1) {
-        char c = '\0';
-
-        // on some systems timeout returns error of EAGAIN but it's supposed to return 0
-        // ignore that case in error logging read
-        if ((read(STDIN_FILENO, &c, 1) == -1) && errno != EAGAIN) die("read");
-        
-        if (iscntrl(c)) {
-            printf("%d\r\n", c);
-        } else {
-            printf("%d ('%c')\r\n", c, c);
-        }
-
-        if (c == CTRL_KEY('q')) break;
+        editorRefreshScreen();
+        editorProcessKeypress();
     }
 
     return 0;
 }
 
-/*
- * BEGIN BLOCK: ENABLE/DISABLE RAW MODE
- */
+/*** terminal ***/
 
 void enableRawMode()
 {
@@ -130,4 +123,34 @@ void die(const char* s)
     
     perror(s); //print error
     exit(1); //return 1 (error) on program exit
+}
+
+char editorReadKey()
+{
+    // Contains logic to read key presses
+    int nread;
+    char c = '\0';
+    while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
+        if (nread == -1 && errno != EAGAIN) die("read");
+    }
+
+    return c;
+}
+
+/*** input ***/
+void editorProcessKeypress()
+{
+    char c = editorReadKey();
+
+    switch (c) {
+        case CTRL_KEY('q'):
+            exit(0);
+            break;
+    }
+}
+
+/*** output ***/
+void editorRefreshScreen()
+{
+    write(STDOUT_FILENO, "\x1b[2J", 4);
 }
