@@ -23,6 +23,7 @@
 
 /*** data ***/
 struct editorConfig {
+    int cx, cy;
     int screenrows;
     int screencols;
     struct termios orig_termios;
@@ -258,6 +259,16 @@ void editorDrawRows(struct abuf *ab)
             int welcomelen = snprintf(welcome, sizeof(welcome), 
             "Cedit -- version %s", CEDIT_VERSION);
             if (welcomelen > E.screencols) welcomelen = E.screencols;
+
+            // padding is half the remaining cols after subtracting welcome message
+            int padding = (E.screencols - welcomelen) / 2;
+            // write a tilde to the first col of welcome line
+            if (padding) {
+                abAppend(ab, "~", 1);
+                padding--;
+            }
+            // exhaust left padding and append welcome message
+            while (padding--) abAppend(ab, " ", 1);
             abAppend(ab, welcome, welcomelen);
         } else {
             abAppend(ab, "~", 1);
@@ -287,8 +298,12 @@ void editorRefreshScreen()
 
     editorDrawRows(&ab);
 
-    //return cursor to start
-    abAppend(&ab, "\x1b[H", 3);
+    // Move cursor to E.cy+1, E.cx+1
+    // (Terminal uses 1 indexed vals)
+    char buf[32];
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", E.cy+1, E.cx+1);
+    abAppend(&ab, buf, strlen(buf));
+
     //show cursor again
     abAppend(&ab, "\x1b[?25h", 6);
 
@@ -302,6 +317,8 @@ void editorRefreshScreen()
 /*** init ***/
 void initEditor()
 {
+    E.cx = 0;
+    E.cy = 0;
     // Initializes vals in E struct
 
     // set row/col size && die on fail
