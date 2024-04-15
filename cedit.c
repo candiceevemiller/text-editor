@@ -3,18 +3,20 @@
  * Author: Candice Miller
  */
 
-/*
- * BEGIN Block: Includes
- */
+/*** includes***/
+#define _DEFAULT_SOURCE
+#define _BSD_SOURCE
+#define _GNU_SOURCE
 
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/ioctl.h>
+#include <sys/types.h>
 #include <termios.h>
 #include <unistd.h>
-#include <string.h>
 
 /*** defines ***/
 #define CEDIT_VERSION "0.0.1"
@@ -34,10 +36,18 @@ enum editorKey {
 };
 
 /*** data ***/
+
+typedef struct erow {
+    int size;
+    char *chars;
+} erow;
+
 struct editorConfig {
     int cx, cy;
     int screenrows;
     int screencols;
+    int numrows;
+    erow *row;
     struct termios orig_termios;
 };
 
@@ -50,6 +60,13 @@ void disableRawMode();
 int editorReadKey();
 int getCursorPosition(int *rows, int *cols);
 int getWindowSize(int *rows, int *cols);
+
+/*** row operations ***/
+void editorAppendRow(char *s, size_t len);
+
+/*** file i/o ***/
+
+void editorOpen(char* filename);
 
 /*** append buffer ***/
 struct abuf {
@@ -75,10 +92,13 @@ void editorRefreshScreen();
 /*** init ***/
 void initEditor();
 
-int main(void)
+int main(int argc, char *argv[])
 {
     enableRawMode();
     initEditor();
+    if (argc >= 2) {
+        editorOpen(argv[1]);
+    }
 
     while (1) {
         editorRefreshScreen();
@@ -255,6 +275,39 @@ int getWindowSize(int *rows, int *cols)
     }
 }
 
+/*** row operations ***/
+
+void editorAppendRow(char *s, size_t len) {
+    E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
+
+    int at = E.numrows;
+    E.row[at].size = len;
+    E.row[at].chars = malloc(len + 1);
+    memcpy(E.row[at].chars, s, len);
+    E.row[at].chars[len] = '\0';
+    E.numrows++;
+}
+
+/*** file i/o ***/
+
+void editorOpen(char *filename)
+{
+    FILE *fp = fopen(filename, "r");
+    if (!fp) die("fopen");
+
+    char *line = NULL;
+    size_t linecap = 0;
+    ssize_t linelen;
+    while ((linelen = getline(&line, &linecap, fp)) != -1) {
+        while (linelen > 0 && (line[linelen - 1] == '\n' ||
+                            line[linelen - 1] == '\r'))
+        linelen --;
+        editorAppendRow(line, linelen);
+    }
+    free(line);
+    fclose(fp);
+    }
+
 /*** append buffer ***/
 void abAppend(struct abuf *ab, const char *s, int len)
 {
@@ -356,28 +409,34 @@ void clearScreen()
 
 void editorDrawRows(struct abuf *ab)
 {
-    // draw ~ like vim
-
     int r; // rows
     for (r = 0; r < E.screenrows; r++) {
-        if (r == E.screenrows / 3) {
-            char welcome[80];
-            int welcomelen = snprintf(welcome, sizeof(welcome), 
-            "Cedit -- version %s", CEDIT_VERSION);
-            if (welcomelen > E.screencols) welcomelen = E.screencols;
+        if (r >= E.numrows) {
+            if (E.numrows == 0 && r == E.screenrows / 3) {
+                char welcome[80];
+                int welcomelen = snprintf(welcome, sizeof(welcome), 
+                "Cedit -- version %s", CEDIT_VERSION);
+                if (welcomelen > E.screencols) welcomelen = E.screencols;
 
-            // padding is half the remaining cols after subtracting welcome message
-            int padding = (E.screencols - welcomelen) / 2;
-            // write a tilde to the first col of welcome line
-            if (padding) {
+                // padding is half the remaining cols after subtracting welcome message
+                int padding = (E.screencols - welcomelen) / 2;
+                // write a tilde to the first col of welcome line
+                if (padding) {
+                    // ~ at the beginning of line like vim
+                    abAppend(ab, "~", 1);
+                    padding--;
+                }
+                // exhaust left padding and append welcome message
+                while (padding--) abAppend(ab, " ", 1);
+                abAppend(ab, welcome, welcomelen);
+            } else {
+                // ~ at the beginning of line like vim
                 abAppend(ab, "~", 1);
-                padding--;
             }
-            // exhaust left padding and append welcome message
-            while (padding--) abAppend(ab, " ", 1);
-            abAppend(ab, welcome, welcomelen);
         } else {
-            abAppend(ab, "~", 1);
+            int len = E.row[r].size;
+            if (len > E.screencols) len = E.screencols;
+            abAppend(ab, E.row[r].chars, len);
         }
 
         // clear right of line
@@ -425,6 +484,8 @@ void initEditor()
 {
     E.cx = 0;
     E.cy = 0;
+    E.numrows = 0;
+    E.row = NULL;
     // Initializes vals in E struct
 
     // set row/col size && die on fail
