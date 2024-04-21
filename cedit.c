@@ -44,6 +44,7 @@ typedef struct erow {
 
 struct editorConfig {
     int cx, cy;
+    int rowoff; // row offset for scroll
     int screenrows;
     int screencols;
     int numrows;
@@ -87,6 +88,7 @@ void editorProcessKeypress();
 void moveCursorToStart();
 void clearScreen();
 void editorDrawRows(struct abuf *ab);
+void editorScroll();
 void editorRefreshScreen();
 
 /*** init ***/
@@ -306,7 +308,7 @@ void editorOpen(char *filename)
     }
     free(line);
     fclose(fp);
-    }
+}
 
 /*** append buffer ***/
 void abAppend(struct abuf *ab, const char *s, int len)
@@ -346,7 +348,7 @@ void editorMoveCursor(int key)
             }
             break;
         case ARROW_DOWN:
-            if (E.cy != E.screenrows - 1) {
+            if (E.cy < E.numrows) {
                 E.cy++;
             }
             break;
@@ -411,7 +413,8 @@ void editorDrawRows(struct abuf *ab)
 {
     int r; // rows
     for (r = 0; r < E.screenrows; r++) {
-        if (r >= E.numrows) {
+        int filerow = r + E.rowoff;
+        if (filerow >= E.numrows) {
             if (E.numrows == 0 && r == E.screenrows / 3) {
                 char welcome[80];
                 int welcomelen = snprintf(welcome, sizeof(welcome), 
@@ -434,9 +437,9 @@ void editorDrawRows(struct abuf *ab)
                 abAppend(ab, "~", 1);
             }
         } else {
-            int len = E.row[r].size;
+            int len = E.row[filerow].size;
             if (len > E.screencols) len = E.screencols;
-            abAppend(ab, E.row[r].chars, len);
+            abAppend(ab, E.row[filerow].chars, len);
         }
 
         // clear right of line
@@ -450,8 +453,20 @@ void editorDrawRows(struct abuf *ab)
     }
 }
 
+void editorScroll()
+{
+    if (E.cy < E.rowoff) {
+        E.rowoff = E.cy;
+    }
+    if (E.cy >= E.rowoff + E.screenrows) {
+        E.rowoff = E.cy - E.screenrows + 1;
+    }
+}
+
 void editorRefreshScreen()
 {
+    editorScroll();
+
     struct abuf ab = ABUF_INIT;
     // don't use clear screen func here because 
     // write is inneficient on draw
@@ -484,6 +499,7 @@ void initEditor()
 {
     E.cx = 0;
     E.cy = 0;
+    E.rowoff = 0;
     E.numrows = 0;
     E.row = NULL;
     // Initializes vals in E struct
