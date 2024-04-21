@@ -481,7 +481,7 @@ void editorRefreshScreen()
     // Move cursor to E.cy+1, E.cx+1
     // (Terminal uses 1 indexed vals)
     char buf[32];
-    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", E.cy+1, E.cx+1);
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.cy-E.rowoff), E.cx+1);
     abAppend(&ab, buf, strlen(buf));
 
     //show cursor again
