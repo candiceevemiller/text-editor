@@ -3,6 +3,8 @@
  * Author: Candice Miller
  */
 
+//TODO: REFACTOR INTO SEVERAL FILES
+
 /*** includes***/
 #define _DEFAULT_SOURCE
 #define _BSD_SOURCE
